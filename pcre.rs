@@ -23,6 +23,11 @@ native mod _native {
                  length: int, startoffset: int, options: int,
                  ovector: *i32, ovecsize: int) -> i32;
     fn pcre_get_stringnumber(re: *_pcre, name: *u8) -> int;
+    fn pcre_refcount(re: *_pcre, adj: int) -> int;
+}
+
+resource _pcre_res(re: *_native::_pcre) {
+    _native::pcre_refcount(re, -1);
 }
 
 fn mk_match(m: option::t<[str]>, re: *_native::_pcre) -> match {
@@ -46,7 +51,8 @@ fn mk_match(m: option::t<[str]>, re: *_native::_pcre) -> match {
 
 fn mk_pcre(re: str) -> pcre unsafe {
     type pcrestate = {
-        _re: *_native::_pcre
+        _re: *_native::_pcre,
+        _res: _pcre_res
     };
 
     obj pcre(st: pcrestate) {
@@ -87,7 +93,7 @@ fn mk_pcre(re: str) -> pcre unsafe {
     if r == ptr::null() {
         fail #fmt["pcre_compile() failed: %s", str::str_from_cstr(errv)];
     }
-    ret pcre({ _re: r });
+    ret pcre({ _re: r, _res: _pcre_res(r) });
 }
 
 #[cfg(test)]
