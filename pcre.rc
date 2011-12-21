@@ -18,3 +18,4 @@
 #[link(name = "pcre",
        vers = "0.1",
        uuid = "54aba0f8-a7b1-4beb-92f1-4cf625264841")];
+#[crate_type = "lib"];
