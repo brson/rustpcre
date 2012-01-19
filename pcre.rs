@@ -17,53 +17,60 @@
 
 use std;
 
+import ctypes::c_int;
+
 export pcre, mk_pcre, match;
 
-type match = obj {
+iface match {
     fn matched() -> bool;
     fn substring(index: uint) -> str;
     fn substrings() -> [str];
     fn named(name: str) -> str;
-};
+}
 
-type pcre = obj {
+iface pcre {
     fn match(target: str) -> match;
-};
+}
 
 #[link_name = "pcre"]
 native mod _native {
     type _pcre;
     type _pcre_extra;
-    fn pcre_compile(pattern: str::sbuf, options: int, errptr: *str::sbuf,
-                    erroffset: *int, tableptr: *u8) -> *_pcre;
+    fn pcre_compile(pattern: str::sbuf, options: c_int, errptr: *str::sbuf,
+                    erroffset: *c_int, tableptr: *u8) -> *_pcre;
     fn pcre_exec(re: *_pcre, extra: *_pcre_extra, subject: str::sbuf,
-                 length: int, startoffset: int, options: int,
-                 ovector: *i32, ovecsize: int) -> i32;
-    fn pcre_get_stringnumber(re: *_pcre, name: *u8) -> int;
-    fn pcre_refcount(re: *_pcre, adj: int) -> int;
+                 length: c_int, startoffset: c_int, options: c_int,
+                 ovector: *c_int, ovecsize: c_int) -> c_int;
+    fn pcre_get_stringnumber(re: *_pcre, name: *u8) -> c_int;
+    fn pcre_refcount(re: *_pcre, adj: c_int) -> c_int;
 }
 
 resource _pcre_res(re: *_native::_pcre) {
-    _native::pcre_refcount(re, -1);
+    _native::pcre_refcount(re, -1 as c_int);
 }
 
 fn mk_match(m: option::t<[str]>, re: *_native::_pcre) -> match {
-    obj match(m: option::t<[str]>, re: *_native::_pcre) {
-        fn matched() -> bool { option::is_some::<[str]>(m) }
+    type matchstate = {
+        m: option::t<[str]>,
+        re: *_native::_pcre
+    };
+
+    impl of match for matchstate {
+        fn matched() -> bool { option::is_some::<[str]>(self.m) }
         fn substring(index: uint) -> str {
-            option::get::<[str]>(m)[index]
+            option::get::<[str]>(self.m)[index]
         }
         fn substrings() -> [str] {
-            option::get::<[str]>(m)
+            option::get::<[str]>(self.m)
         }
         fn named(name: str) -> str unsafe {
-            let _re = re;
+            let _re = self.re;
             let idx = str::as_buf(name, { |_name|
                 _native::pcre_get_stringnumber(_re, _name) });
-            ret option::get::<[str]>(m)[idx - 1];
+            ret option::get::<[str]>(self.m)[idx - (1 as c_int)];
         }
     }
-    ret match(m, re);
+    ret { m : m, re: re } as match;
 }
 
 fn mk_pcre(re: str) -> pcre unsafe {
@@ -72,16 +79,17 @@ fn mk_pcre(re: str) -> pcre unsafe {
         _res: _pcre_res
     };
 
-    obj pcre(st: pcrestate) {
+    impl of pcre for pcrestate {
         fn match(target: str) -> match unsafe {
             let oveclen = 30;
             let ovec = vec::init_elt_mut::<i32>(0i32, oveclen as uint);
             let ovecp = vec::unsafe::to_ptr::<i32>(ovec);
-            let re = st._re;
+            let re = self._re;
             let r = str::as_buf(target, { |_target|
                 _native::pcre_exec(re, ptr::null(),
-                                   _target, str::byte_len(target) as int,
-                                   0, 0, ovecp, oveclen)
+                                   _target, str::byte_len(target) as c_int,
+                                   0 as c_int, 0 as c_int, ovecp,
+                                   oveclen as c_int)
             });
             if r < 0i32 {
                 ret mk_match(option::none, re);
@@ -102,15 +110,15 @@ fn mk_pcre(re: str) -> pcre unsafe {
     }
 
     let errv = ptr::null();
-    let erroff = 0;
+    let erroff = 0 as c_int;
     let r = str::as_buf(re, { |_re|
-        _native::pcre_compile(_re, 0, ptr::addr_of(errv), ptr::addr_of(erroff),
-                              ptr::null())
+        _native::pcre_compile(_re, 0 as c_int, ptr::addr_of(errv),
+                              ptr::addr_of(erroff), ptr::null())
     });
     if r == ptr::null() {
-        fail #fmt["pcre_compile() failed: %s", str::str_from_cstr(errv)];
+        fail #fmt["pcre_compile() failed: %s", str::from_cstr(errv)];
     }
-    ret pcre({ _re: r, _res: _pcre_res(r) });
+    ret { _re: r, _res: _pcre_res(r) } as pcre;
 }
 
 #[cfg(test)]
