@@ -17,7 +17,7 @@
 
 use std;
 
-import ctypes::c_int;
+import ctypes::{c_int, void};
 
 export pcre, mk_pcre, match;
 
@@ -32,10 +32,11 @@ iface pcre {
     fn match(target: str) -> match;
 }
 
+type _pcre = *void;
+type _pcre_extra = *void;
+
 #[link_name = "pcre"]
 native mod _native {
-    type _pcre;
-    type _pcre_extra;
     fn pcre_compile(pattern: str::sbuf, options: c_int, errptr: *str::sbuf,
                     erroffset: *c_int, tableptr: *u8) -> *_pcre;
     fn pcre_exec(re: *_pcre, extra: *_pcre_extra, subject: str::sbuf,
@@ -45,14 +46,14 @@ native mod _native {
     fn pcre_refcount(re: *_pcre, adj: c_int) -> c_int;
 }
 
-resource _pcre_res(re: *_native::_pcre) {
+resource _pcre_res(re: *_pcre) {
     _native::pcre_refcount(re, -1 as c_int);
 }
 
-fn mk_match(m: option::t<[str]>, re: *_native::_pcre) -> match {
+fn mk_match(m: option::t<[str]>, re: *_pcre) -> match {
     type matchstate = {
         m: option::t<[str]>,
-        re: *_native::_pcre
+        re: *_pcre
     };
 
     impl of match for matchstate {
@@ -75,15 +76,15 @@ fn mk_match(m: option::t<[str]>, re: *_native::_pcre) -> match {
 
 fn mk_pcre(re: str) -> pcre unsafe {
     type pcrestate = {
-        _re: *_native::_pcre,
+        _re: *_pcre,
         _res: _pcre_res
     };
 
     impl of pcre for pcrestate {
         fn match(target: str) -> match unsafe {
             let oveclen = 30;
-            let ovec = vec::init_elt_mut::<i32>(0i32, oveclen as uint);
-            let ovecp = vec::unsafe::to_ptr::<i32>(ovec);
+            let ovec = vec::init_elt_mut(oveclen as uint, 0i32);
+            let ovecp = vec::unsafe::to_ptr(ovec);
             let re = self._re;
             let r = str::as_buf(target, { |_target|
                 _native::pcre_exec(re, ptr::null(),
