@@ -17,7 +17,7 @@
 
 use std;
 
-import ctypes::{c_int, void};
+import libc::{c_int, c_void, c_char};
 
 export pcre, mk_pcre, match;
 
@@ -32,14 +32,14 @@ iface pcre {
     fn match(target: str) -> match;
 }
 
-type _pcre = *void;
-type _pcre_extra = *void;
+type _pcre = *c_void;
+type _pcre_extra = *c_void;
 
 #[link_name = "pcre"]
 native mod _native {
-    fn pcre_compile(pattern: str::sbuf, options: c_int, errptr: *str::sbuf,
+    fn pcre_compile(pattern: *c_char, options: c_int, errptr: **c_char,
                     erroffset: *c_int, tableptr: *u8) -> *_pcre;
-    fn pcre_exec(re: *_pcre, extra: *_pcre_extra, subject: str::sbuf,
+    fn pcre_exec(re: *_pcre, extra: *_pcre_extra, subject: *c_char,
                  length: c_int, startoffset: c_int, options: c_int,
                  ovector: *c_int, ovecsize: c_int) -> c_int;
     fn pcre_get_stringnumber(re: *_pcre, name: *u8) -> c_int;
@@ -50,9 +50,9 @@ resource _pcre_res(re: *_pcre) {
     _native::pcre_refcount(re, -1 as c_int);
 }
 
-fn mk_match(m: option::t<[str]>, re: *_pcre) -> match {
+fn mk_match(m: option<[str]>, re: *_pcre) -> match {
     type matchstate = {
-        m: option::t<[str]>,
+        m: option<[str]>,
         re: *_pcre
     };
 
@@ -83,20 +83,20 @@ fn mk_pcre(re: str) -> pcre unsafe {
     impl of pcre for pcrestate {
         fn match(target: str) -> match unsafe {
             let oveclen = 30;
-            let ovec = vec::init_elt_mut(oveclen as uint, 0i32);
+            let ovec = vec::to_mut(vec::from_elem(oveclen as uint, 0i32));
             let ovecp = vec::unsafe::to_ptr(ovec);
             let re = self._re;
-            let r = str::as_buf(target, { |_target|
+            let r = str::as_c_str(target, { |_target|
                 _native::pcre_exec(re, ptr::null(),
-                                   _target, str::byte_len(target) as c_int,
+                                   _target, str::len(target) as c_int,
                                    0 as c_int, 0 as c_int, ovecp,
                                    oveclen as c_int)
             });
             if r < 0i32 {
                 ret mk_match(option::none, re);
             }
-            let idx = 2;    // skip the whole-string match at the start
-            let res : [str] = [];
+            let mut idx = 2;    // skip the whole-string match at the start
+            let mut res : [str] = [];
             while idx < oveclen * 2 / 3 {
                 let start = ovec[idx];
                 let end = ovec[idx + 1];
@@ -112,12 +112,12 @@ fn mk_pcre(re: str) -> pcre unsafe {
 
     let errv = ptr::null();
     let erroff = 0 as c_int;
-    let r = str::as_buf(re, { |_re|
+    let r = str::as_c_str(re, { |_re|
         _native::pcre_compile(_re, 0 as c_int, ptr::addr_of(errv),
                               ptr::addr_of(erroff), ptr::null())
     });
     if r == ptr::null() {
-        fail #fmt["pcre_compile() failed: %s", str::from_cstr(errv)];
+        fail #fmt["pcre_compile() failed: %s", str::unsafe::from_c_str(errv)];
     }
     ret { _re: r, _res: _pcre_res(r) } as pcre;
 }
